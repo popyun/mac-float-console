@@ -14,8 +14,8 @@ Mac Float Console lives in the menu bar and opens a movable, pin-able floating p
 
 | Area | Behavior | Update |
 | --- | --- | --- |
-| CPU | System-wide busy time across all logical processors | Every 2 seconds |
-| Memory | Active, wired, and physically compressed RAM as a share of installed RAM | Every 2 seconds |
+| CPU | System-wide busy time across all logical processors; click for top CPU processes | Every 2 seconds |
+| Memory | Active, wired, and physically compressed RAM as a share of installed RAM; click for page categories and top resident processes | Every 2 seconds |
 | Codex | Remaining percentage and local reset time for available 5-hour and weekly windows | At launch, every 5 minutes, or manually |
 | Floating window | Drag, pin, lock, collapse switches, shrink/expand, hide/reopen from menu bar | Immediate |
 | System switches | Prevent sleep, Do Not Disturb, show hidden files, auto-hide Dock | **UI demo only** |
@@ -24,7 +24,10 @@ The compact panel stays 180 points wide, includes both Codex percentages, omits 
 
 ![Compact panel with illustrative values](docs/images/compact.png)
 
-The default panel is 280 × 242 points. Expanding the switch section makes it 280 × 366; compact mode is 180 × 106.
+The default panel is 280 × 242 points. Expanding the switch section makes it 280 × 366; compact mode is 180 × 106. Click either metric bar to open its on-demand detail. Click the same bar or the detail's close button to collapse it. A metric click in compact mode opens the full detail.
+
+![CPU process detail with illustrative values](docs/images/cpu-detail.png)
+![Memory page and process detail with illustrative values](docs/images/memory-detail.png)
 
 ## Run locally
 
@@ -37,11 +40,13 @@ open dist/系统控制台.app
 
 The build creates a locally signed app and a zip in the ignored dist directory. The repository does not contain a prebuilt or notarized release. CPU and memory work without a login. To display live Codex quota, install and sign in to the Codex CLI with a ChatGPT account.
 
-Drag the title area in the normal panel, or drag the CPU, memory, or Codex data area in compact mode. The blue button expands the compact panel. The pin button toggles always-on-top; the lock button prevents dragging in either mode. Closing the panel leaves its menu-bar icon available for reopening or quitting.
+Drag the title area in the normal panel, or drag the Codex data area in compact mode; the CPU and memory bars remain clickable. The blue button expands the compact panel. The pin button toggles always-on-top; the lock button prevents dragging in either mode. Closing the panel leaves its menu-bar icon available for reopening or quitting.
 
 ## Data and privacy
 
 CPU comes from consecutive macOS processor-time samples, so the first percentage appears after roughly two seconds. Memory uses macOS virtual-memory counters; its definition is close to, but may differ slightly from, Activity Monitor's Memory Used. Whole-number percentages may stay unchanged when utilization is steady.
+
+Process details use the local `ps` command and are sampled only while a detail is open. Per-process CPU treats one core as 100% and may exceed 100%, so it is not directly comparable with the 0–100% system-wide bar. Per-process memory is resident set size (RSS); shared pages can be counted in several processes, so the rows cannot be summed into system memory used. Inactive pages are shown for context but excluded from the memory bar. Process lists are neither uploaded nor saved.
 
 Codex quota is read through the locally installed Codex CLI app-server, using its read-only rate-limits request. The app does not read or save authentication tokens, create model turns, or consume quota-reset credits. If the CLI is unavailable or signed out, the UI shows an unavailable state; a failed refresh preserves the last successful reading. No analytics, telemetry, or app-level preference storage is implemented.
 

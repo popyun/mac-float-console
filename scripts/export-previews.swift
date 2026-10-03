@@ -21,6 +21,22 @@ private struct ExportPreviews {
                                             resetsAt: now + 4 * 24 * 60 * 60)
             )
             model.quotaUpdatedAt = Date()
+            let gib: UInt64 = 1_073_741_824
+            let active = 6 * gib
+            let wired = 3 * gib
+            let compressed = 4 * gib / 5
+            model.memoryReading = MemoryReading(usedBytes: active + wired + compressed,
+                                                totalBytes: 16 * gib,
+                                                activeBytes: active, wiredBytes: wired,
+                                                compressedBytes: compressed,
+                                                inactiveBytes: 16 * gib / 5)
+            model.processes = [
+                ProcessReading(pid: 101, name: "Web Browser", cpuPercent: 48.2, residentBytes: 1_400_000_000),
+                ProcessReading(pid: 102, name: "Code Editor", cpuPercent: 22.1, residentBytes: 920_000_000),
+                ProcessReading(pid: 103, name: "WindowServer", cpuPercent: 8.4, residentBytes: 660_000_000),
+                ProcessReading(pid: 104, name: "Mail", cpuPercent: 3.7, residentBytes: 440_000_000),
+                ProcessReading(pid: 105, name: "Finder", cpuPercent: 1.2, residentBytes: 280_000_000)
+            ]
         } else if CommandLine.arguments.count > 2, !CommandLine.arguments[2].isEmpty {
             model.codexQuota = try CodexQuota.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
             model.quotaUpdatedAt = Date()
@@ -29,15 +45,21 @@ private struct ExportPreviews {
         }
         model.shortcuts[0].isEnabled = true
         model.shortcuts[3].isEnabled = true
-        let modes = [
-            ("console-preview.png", false, true),
-            ("console-collapsed.png", false, false),
-            ("console-mini.png", true, false)
-        ]
-        for (filename, compact, expanded) in modes {
+        let demo = CommandLine.arguments.dropFirst().contains("--demo")
+        let modes: [(String, Bool, Bool, MetricDetail?)] = [
+            ("console-preview.png", false, true, nil),
+            ("console-collapsed.png", false, false, nil),
+            ("console-mini.png", true, false, nil)
+        ] + (demo ? [
+            ("console-cpu-detail.png", false, false, .cpu),
+            ("console-memory-detail.png", false, false, .memory)
+        ] : [])
+        for (filename, compact, expanded, detail) in modes {
             model.isCompact = compact
             model.areShortcutsExpanded = expanded
-            let size = PreviewModel.panelSize(compact: compact, shortcutsExpanded: expanded)
+            model.selectedMetric = detail
+            let size = PreviewModel.panelSize(compact: compact, shortcutsExpanded: expanded,
+                                              metricDetail: detail)
             let renderer = ImageRenderer(content: ConsoleView(model: model, close: {})
                 .environment(\.exportsStaticPreview, true))
             renderer.scale = 2

@@ -23,6 +23,10 @@ struct CPUTimeSnapshot {
 struct MemoryReading {
     let usedBytes: UInt64
     let totalBytes: UInt64
+    let activeBytes: UInt64
+    let wiredBytes: UInt64
+    let compressedBytes: UInt64
+    let inactiveBytes: UInt64
 
     var percent: Int {
         guard totalBytes > 0 else { return 0 }
@@ -63,10 +67,14 @@ final class SystemMonitor {
         guard total > 0 else { return nil }
         // Active + wired + physical compressor pages approximates Activity
         // Monitor's Memory Used; inactive file cache is available to reuse.
-        let usedPages = UInt64(statistics.active_count)
-            + UInt64(statistics.wire_count)
-            + UInt64(statistics.compressor_page_count)
-        return MemoryReading(usedBytes: min(total, usedPages * UInt64(pageSize)), totalBytes: total)
+        let pageBytes = UInt64(pageSize)
+        let active = UInt64(statistics.active_count) * pageBytes
+        let wired = UInt64(statistics.wire_count) * pageBytes
+        let compressed = UInt64(statistics.compressor_page_count) * pageBytes
+        let inactive = UInt64(statistics.inactive_count) * pageBytes
+        return MemoryReading(usedBytes: min(total, active + wired + compressed), totalBytes: total,
+                             activeBytes: active, wiredBytes: wired, compressedBytes: compressed,
+                             inactiveBytes: inactive)
     }
 
     private func readCPUTicks() -> CPUTimeSnapshot? {

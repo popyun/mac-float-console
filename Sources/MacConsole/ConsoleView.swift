@@ -24,7 +24,9 @@ struct ConsoleView: View {
     let close: () -> Void
 
     private var size: CGSize {
-        PreviewModel.panelSize(compact: model.isCompact, shortcutsExpanded: model.areShortcutsExpanded)
+        PreviewModel.panelSize(compact: model.isCompact,
+                               shortcutsExpanded: model.areShortcutsExpanded,
+                               metricDetail: model.selectedMetric)
     }
 
     var body: some View {
@@ -35,11 +37,11 @@ struct ConsoleView: View {
                         metrics
                         Rectangle().fill(ink.opacity(0.07)).frame(height: 1)
                         compactCodexUsage
-                    }
-                    .overlay {
-                        if !exportsStaticPreview {
-                            WindowDragArea(isLocked: model.isLocked) { model.isCompact = false }
-                        }
+                            .overlay {
+                                if !exportsStaticPreview {
+                                    WindowDragArea(isLocked: model.isLocked)
+                                }
+                            }
                     }
                     Button {
                         model.isCompact = false
@@ -55,7 +57,6 @@ struct ConsoleView: View {
                     .accessibilityLabel("展开控制台")
                     .help("展开控制台")
                 }
-                    .onTapGesture(count: 2) { model.isCompact = false }
                     .contextMenu {
                         Button("恢复完整控制台") { model.isCompact = false }
                         Button(model.isLocked ? "解锁位置" : "锁定位置") { model.isLocked.toggle() }
@@ -64,7 +65,7 @@ struct ConsoleView: View {
                         Button("关闭浮窗", action: close)
                     }
                     .help(model.isLocked ? "位置已锁定，可右键解锁；点击右侧按钮展开" :
-                          "CPU / 内存每 2 秒更新 · 按住数据区域拖动浮窗；点击右侧按钮展开")
+                          "点击 CPU 或内存查看详情；按住 Codex 区域拖动浮窗")
             } else {
                 fullConsole
             }
@@ -118,6 +119,10 @@ struct ConsoleView: View {
             header.frame(height: 22)
             Spacer().frame(height: 6)
             metrics
+            if let detail = model.selectedMetric {
+                Spacer().frame(height: 6)
+                metricDetailCard(detail)
+            }
             Spacer().frame(height: 6)
             Rectangle().fill(ink.opacity(0.07)).frame(height: 1)
             Spacer().frame(height: 6)
@@ -231,8 +236,111 @@ struct ConsoleView: View {
 
     private var metrics: some View {
         VStack(spacing: 4) {
-            ForEach(model.metrics, id: \.title) { MetricBar(metric: $0, compact: model.isCompact) }
+            ForEach(model.metrics, id: \.title) { metric in
+                MetricBar(metric: metric, compact: model.isCompact,
+                          selected: model.selectedMetric?.rawValue == metric.title) {
+                    guard let detail = MetricDetail(rawValue: metric.title) else { return }
+                    model.toggleMetricDetail(detail)
+                }
+            }
         }.frame(height: 44)
+    }
+
+    private func metricDetailCard(_ detail: MetricDetail) -> some View {
+        let top = Array((detail == .cpu
+            ? model.processes.sorted { $0.cpuPercent > $1.cpuPercent }
+            : model.processes.sorted { $0.residentBytes > $1.residentBytes }).prefix(5))
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: detail == .cpu ? "cpu" : "memorychip")
+                    .foregroundStyle(consoleBlue)
+                Text(detail == .cpu ? "CPU 进程" : "内存详情")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Text(model.isRefreshingProcesses ? "更新中" : "每 2 秒更新")
+                    .font(.system(size: 8)).foregroundStyle(secondaryInk)
+                Button { model.selectedMetric = nil } label: {
+                    Image(systemName: "xmark").font(.system(size: 9))
+                        .foregroundStyle(secondaryInk).frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain).accessibilityLabel("关闭指标详情")
+            }.frame(height: 18)
+
+            if detail == .memory, let memory = model.memoryReading {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Text("页分类").font(.system(size: 9, weight: .semibold))
+                        Spacer()
+                        Text("前三项计入上方使用率").font(.system(size: 8)).foregroundStyle(secondaryInk)
+                    }
+                    HStack(spacing: 8) {
+                        memoryPage("活跃页", bytes: memory.activeBytes)
+                        memoryPage("固定页", bytes: memory.wiredBytes)
+                    }
+                    HStack(spacing: 8) {
+                        memoryPage("压缩页", bytes: memory.compressedBytes)
+                        memoryPage("非活跃页", bytes: memory.inactiveBytes)
+                    }
+                }
+                .frame(height: 55)
+            }
+
+            HStack {
+                Text(detail == .cpu ? "占用较高的进程" : "常驻内存较高的进程")
+                    .font(.system(size: 9, weight: .semibold))
+                Spacer()
+                Text(detail == .cpu ? "CPU" : "RSS")
+                    .font(.system(size: 8)).foregroundStyle(secondaryInk)
+            }.frame(height: 14)
+
+            VStack(spacing: 0) {
+                if let error = model.processError {
+                    Text(error).font(.system(size: 9)).foregroundStyle(secondaryInk)
+                } else if top.isEmpty {
+                    Text("正在读取进程…").font(.system(size: 9)).foregroundStyle(secondaryInk)
+                } else {
+                    ForEach(top) { process in
+                        HStack(spacing: 4) {
+                            Text(process.name).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 2)
+                            Text(detail == .cpu
+                                 ? String(format: "%.1f%%", process.cpuPercent)
+                                 : bytesText(process.residentBytes))
+                                .monospacedDigit()
+                        }
+                        .font(.system(size: 9))
+                        .frame(height: 18)
+                        .help("PID \(process.pid) · \(process.name)")
+                    }
+                }
+            }.frame(height: 90, alignment: .top)
+
+            Text(detail == .cpu
+                 ? "进程 CPU 以单核 100% 计，可能高于 100%；与上方全机百分比口径不同。"
+                 : "进程数值为常驻内存；共享页可能重复计数，不能相加当作系统总占用。")
+                .font(.system(size: 8)).foregroundStyle(secondaryInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(height: detail == .cpu ? 182 : 240)
+        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.7)))
+    }
+
+    private func memoryPage(_ title: String, bytes: UInt64) -> some View {
+        HStack(spacing: 3) {
+            Text(title).foregroundStyle(secondaryInk)
+            Spacer(minLength: 0)
+            Text(bytesText(bytes)).monospacedDigit()
+        }
+        .font(.system(size: 9))
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bytesText(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .memory)
     }
 
     private var header: some View {
@@ -252,7 +360,7 @@ struct ConsoleView: View {
             }
             headerButton(symbol: "arrow.down.right.and.arrow.up.left", label: "缩小为缩略状态",
                          help: "缩略状态显示 CPU、内存和 Codex 额度，点击展开按钮恢复") {
-                model.isCompact = true
+                model.enterCompact()
             }
             headerButton(symbol: "xmark", label: "关闭浮窗", help: "关闭浮窗，可从菜单栏重新打开", action: close)
         }.background {
@@ -295,25 +403,33 @@ struct ConsoleView: View {
 private struct MetricBar: View {
     let metric: SystemMetric
     let compact: Bool
+    let selected: Bool
+    let action: () -> Void
 
     var body: some View {
-        HStack(spacing: compact ? 6 : 8) {
-            Text(metric.title).font(.system(size: 10, weight: .medium))
-                .frame(width: 28, alignment: .leading)
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(metric.accent.opacity(0.12))
-                    Capsule().fill(metric.accent)
-                        .frame(width: geometry.size.width * Double(metric.percent ?? 0) / 100)
-                }
-            }.frame(height: compact ? 6 : 8)
-            Text(metric.percent.map { "\($0)%" } ?? "—")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .monospacedDigit().frame(width: compact ? 30 : 32, alignment: .trailing)
+        Button(action: action) {
+            HStack(spacing: compact ? 6 : 8) {
+                Text(metric.title).font(.system(size: 10, weight: .medium))
+                    .frame(width: 28, alignment: .leading)
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(metric.accent.opacity(0.12))
+                        Capsule().fill(metric.accent)
+                            .frame(width: geometry.size.width * Double(metric.percent ?? 0) / 100)
+                    }
+                }.frame(height: compact ? 6 : 8)
+                Text(metric.percent.map { "\($0)%" } ?? "—")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .monospacedDigit().frame(width: compact ? 30 : 32, alignment: .trailing)
+            }
+            .frame(height: 20)
+            .contentShape(Rectangle())
         }
-        .frame(height: 20).help(metric.detail)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(metric.title)，\(metric.percent.map { "\($0)%" } ?? "读取中")")
+        .buttonStyle(.plain)
+        .background(selected ? metric.accent.opacity(0.09) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .help("\(metric.detail) · 点击查看详情")
+        .accessibilityLabel("查看\(metric.title)详情，当前\(metric.percent.map { "\($0)%" } ?? "读取中")")
     }
 }
 

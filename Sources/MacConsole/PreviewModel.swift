@@ -8,6 +8,11 @@ struct SystemMetric {
     let accent: Color
 }
 
+enum MetricDetail: String {
+    case cpu = "CPU"
+    case memory = "内存"
+}
+
 struct ShortcutItem: Identifiable {
     let id: String
     let title: String
@@ -48,6 +53,11 @@ final class PreviewModel: ObservableObject {
     private let quotaReader = CodexQuotaReader()
     private var quotaTimer: Timer?
     @Published var lastSystemUpdateAt: Date?
+    @Published var memoryReading: MemoryReading?
+    @Published var selectedMetric: MetricDetail?
+    @Published var processes: [ProcessReading] = []
+    @Published var processError: String?
+    @Published var isRefreshingProcesses = false
     private let systemMonitor = SystemMonitor()
     private var systemTimer: Timer?
     static let compactOpacity = 0.75
@@ -66,9 +76,25 @@ final class PreviewModel: ObservableObject {
 
     func stopSystemUpdates() { systemTimer?.invalidate() }
 
+    func toggleMetricDetail(_ metric: MetricDetail) {
+        if selectedMetric == metric {
+            selectedMetric = nil
+        } else {
+            isCompact = false
+            selectedMetric = metric
+            refreshProcesses()
+        }
+    }
+
+    func enterCompact() {
+        selectedMetric = nil
+        isCompact = true
+    }
+
     private func refreshSystemMetrics() {
         let cpu = systemMonitor.sampleCPU()
         let memory = systemMonitor.sampleMemory()
+        memoryReading = memory
         metrics = [
             SystemMetric(title: "CPU", symbol: "cpu", percent: cpu,
                          detail: cpu == nil ? "正在读取处理器占用率" : "全机处理器占用率 · 每 2 秒更新",
@@ -78,6 +104,27 @@ final class PreviewModel: ObservableObject {
                          accent: Self.exampleMetrics[1].accent)
         ]
         lastSystemUpdateAt = Date()
+        if selectedMetric != nil { refreshProcesses() }
+    }
+
+    private func refreshProcesses() {
+        guard !isRefreshingProcesses else { return }
+        isRefreshingProcesses = true
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                Result { try ProcessReader.read() }
+            }.value
+            guard let self else { return }
+            isRefreshingProcesses = false
+            guard selectedMetric != nil else { return }
+            switch result {
+            case .success(let readings):
+                processes = readings
+                processError = nil
+            case .failure:
+                processError = "进程列表暂不可用"
+            }
+        }
     }
 
     func startQuotaUpdates() {
@@ -116,8 +163,15 @@ final class PreviewModel: ObservableObject {
         }
     }
 
-    static func panelSize(compact: Bool, shortcutsExpanded: Bool) -> CGSize {
+    static func panelSize(compact: Bool, shortcutsExpanded: Bool,
+                          metricDetail: MetricDetail? = nil) -> CGSize {
         if compact { return CGSize(width: 180, height: 106) }
-        return CGSize(width: 280, height: shortcutsExpanded ? 366 : 242)
+        let detailHeight: CGFloat
+        switch metricDetail {
+        case .cpu: detailHeight = 188
+        case .memory: detailHeight = 246
+        case nil: detailHeight = 0
+        }
+        return CGSize(width: 280, height: (shortcutsExpanded ? 366 : 242) + detailHeight)
     }
 }

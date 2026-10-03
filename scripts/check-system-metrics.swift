@@ -17,14 +17,21 @@ struct CheckSystemMetrics {
         guard let memory = monitor.sampleMemory(),
               memory.totalBytes > 0,
               memory.usedBytes > 0,
-              memory.usedBytes <= memory.totalBytes else {
+              memory.usedBytes <= memory.totalBytes,
+              memory.usedBytes == min(memory.totalBytes,
+                  memory.activeBytes + memory.wiredBytes + memory.compressedBytes) else {
             fatalError("Could not read physical memory")
         }
+        let parsed = ProcessReader.parse("  123  12.5  1024 /Applications/Example App.app/Contents/MacOS/Example App\n")
+        precondition(parsed.count == 1 && parsed[0].pid == 123 &&
+                     parsed[0].name == "Example App" && parsed[0].residentBytes == 1_048_576)
+        let processes = try? ProcessReader.read()
+        precondition(processes?.isEmpty == false, "Could not read live processes")
         _ = monitor.sampleCPU()
         Thread.sleep(forTimeInterval: 2)
         guard let cpu = monitor.sampleCPU(), (0...100).contains(cpu) else {
             fatalError("Could not read processor ticks")
         }
-        print("PASS: CPU delta, rollover, live CPU \(cpu)%, live memory \(memory.percent)% (\(memory.detail))")
+        print("PASS: CPU delta, rollover, live CPU \(cpu)%, live memory \(memory.percent)% (\(memory.detail)), \(processes!.count) processes")
     }
 }

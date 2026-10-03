@@ -40,14 +40,17 @@ private final class ConsoleAppDelegate: NSObject, NSApplicationDelegate, NSMenuD
             self?.panel.isMovable = !isLocked
             self?.panel.isMovableByWindowBackground = self?.model.isCompact == true && !isLocked
         }.store(in: &subscriptions)
-        model.$isCompact.combineLatest(model.$areShortcutsExpanded)
+        model.$isCompact.combineLatest(model.$areShortcutsExpanded).combineLatest(model.$selectedMetric)
             // @Published emits before assignment. Resize on the next run-loop pass
             // so AppKit does not force SwiftUI to render the previous layout.
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] compact, expanded in
+            .sink { [weak self] sizes, detail in
+                let (compact, expanded) = sizes
                 self?.panel.alphaValue = compact ? PreviewModel.compactOpacity : 1
                 self?.panel.isMovableByWindowBackground = compact && self?.model.isLocked == false
-                self?.resizePanel(to: PreviewModel.panelSize(compact: compact, shortcutsExpanded: expanded))
+                self?.resizePanel(to: PreviewModel.panelSize(compact: compact,
+                                                               shortcutsExpanded: expanded,
+                                                               metricDetail: detail))
             }.store(in: &subscriptions)
         showConsole()
     }
@@ -63,7 +66,9 @@ private final class ConsoleAppDelegate: NSObject, NSApplicationDelegate, NSMenuD
     }
 
     private func configurePanel() {
-        let size = PreviewModel.panelSize(compact: model.isCompact, shortcutsExpanded: model.areShortcutsExpanded)
+        let size = PreviewModel.panelSize(compact: model.isCompact,
+                                          shortcutsExpanded: model.areShortcutsExpanded,
+                                          metricDetail: model.selectedMetric)
         panel = ConsolePanel(contentRect: NSRect(origin: .zero, size: size),
                              styleMask: [.borderless],
                              backing: .buffered, defer: false)
@@ -102,7 +107,7 @@ private final class ConsoleAppDelegate: NSObject, NSApplicationDelegate, NSMenuD
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "系统控制台")
         statusItem.button?.image?.isTemplate = true
-        statusItem.button?.toolTip = "系统控制台 · 界面预览"
+        statusItem.button?.toolTip = "系统控制台 · 实时指标"
         let menu = NSMenu()
         menu.delegate = self
         let showItem = NSMenuItem(title: "显示系统控制台", action: #selector(showConsole), keyEquivalent: "")
@@ -128,7 +133,7 @@ private final class ConsoleAppDelegate: NSObject, NSApplicationDelegate, NSMenuD
     }
 
     @objc private func toggleCompact() {
-        model.isCompact.toggle()
+        if model.isCompact { model.isCompact = false } else { model.enterCompact() }
         showConsole()
     }
 
